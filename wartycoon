@@ -1,0 +1,260 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+    Name = "Silent Aim ACS",
+    LoadingTitle = "Loading",
+    LoadingSubtitle = "by deepseek",
+    ConfigurationSaving = { Enabled = true, FolderName = "SilentAimACS", FileName = "Config" },
+    Discord = { Enabled = false },
+    KeySystem = false
+})
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+local Camera = Workspace.CurrentCamera
+
+local MainTab = Window:CreateTab("Silent Aim")
+
+-- Находим нужные RemoteEvents в ACS_Engine
+local acsEngine = ReplicatedStorage:FindFirstChild("ACS_Engine")
+local events = acsEngine and acsEngine:FindFirstChild("Events")
+local serverBullet = events and events:FindFirstChild("ServerBullet")
+local hit = events and events:FindFirstChild("Hit")
+local damage = events and events:FindFirstChild("Damage")
+
+print("ServerBullet found:", serverBullet ~= nil)
+print("Hit found:", hit ~= nil)
+print("Damage found:", damage ~= nil)
+
+local silentAimEnabled = false
+local silentAimFOV = 300
+local targetMode = "Head"
+
+-- Функция для получения ближайшей цели
+local function getNearestTarget()
+    local nearest = nil
+    local nearestDist = silentAimFOV
+    local mousePos = UserInputService:GetMouseLocation()
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = player.Character
+            if char then
+                local humanoid = char:FindFirstChild("Humanoid")
+                if humanoid and humanoid.Health > 0 then
+                    local targetPart = nil
+                    if targetMode == "Head" then
+                        targetPart = char:FindFirstChild("Head")
+                    else
+                        targetPart = char:FindFirstChild("HumanoidRootPart")
+                    end
+                    
+                    if not targetPart then
+                        targetPart = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+                    end
+                    
+                    if targetPart then
+                        local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                        if onScreen then
+                            local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                            if dist < nearestDist then
+                                nearestDist = dist
+                                nearest = {
+                                    Player = player,
+                                    Part = targetPart,
+                                    Position = targetPart.Position,
+                                    Distance = dist
+                                }
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return nearest
+end
+
+-- Перехватываем ServerBullet (главный RemoteEvent для выстрелов в ACS)
+local originalServerBullet = nil
+if serverBullet then
+    originalServerBullet = serverBullet.OnServerEvent
+end
+
+local function setupSilentAim()
+    if not serverBullet then
+        -- Пробуем другие RemoteEvents
+        if hit then
+            serverBullet = hit
+        elseif damage then
+            serverBullet = damage
+        else
+            Rayfield:Notify({Title = "Error", Content = "No weapon remote found!", Duration = 3})
+            return false
+        end
+        originalServerBullet = serverBullet.OnServerEvent
+    end
+    
+    serverBullet.OnServerEvent = function(player, ...)
+        if player == LocalPlayer and silentAimEnabled then
+            local target = getNearestTarget()
+            if target then
+                local args = {...}
+                local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    -- Вычисляем направление на цель
+                    local direction = (target.Position - hrp.Position).Unit
+                    
+                    -- Модифицируем аргументы в зависимости от того, что передается
+                    if args and #args >= 1 then
+                        -- Обычно в ACS аргументы: {Position, Direction, Weapon}
+                        if type(args[1]) == "Vector3" then
+                            -- Меняем позицию прицеливания
+                            args[1] = target.Position
+                        end
+                        if type(args[2]) == "Vector3" and #args >= 2 then
+                            -- Меняем направление
+                            args[2] = direction
+                        end
+                    end
+                    
+                    if originalServerBullet then
+                        originalServerBullet(player, unpack(args))
+                    end
+                    return
+                end
+            end
+        end
+        
+        if originalServerBullet then
+            originalServerBullet(player, ...)
+        end
+    end
+    
+    return true
+end
+
+local function restoreServerBullet()
+    if serverBullet and originalServerBullet then
+        serverBullet.OnServerEvent = originalServerBullet
+    end
+end
+
+-- Создаем UI
+MainTab:CreateSection("SILENT AIM ACS")
+
+MainTab:CreateToggle({
+    Name = "Enable Silent Aim",
+    CurrentValue = false,
+    Flag = "SilentAimToggle",
+    Callback = function(v)
+        silentAimEnabled = v
+        if v then
+            setupSilentAim()
+            Rayfield:Notify({Title = "Silent Aim", Content = "Activated!", Duration = 2})
+        else
+            restoreServerBullet()
+            Rayfield:Notify({Title = "Silent Aim", Content = "Deactivated", Duration = 2})
+        end
+    end
+})
+
+MainTab:CreateSection("AIM SETTINGS")
+
+MainTab:CreateDropdown({
+    Name = "Target Body Part",
+    Options = {"Head", "HumanoidRootPart"},
+    CurrentOption = "Head",
+    Flag = "TargetPartDropdown",
+    Callback = function(option)
+        if option and #option > 0 then
+            targetMode = option[1]
+        end
+    end
+})
+
+MainTab:CreateSlider({
+    Name = "Aim FOV",
+    Range = {50, 500},
+    Increment = 10,
+    Suffix = " pixels",
+    CurrentValue = 300,
+    Flag = "FOVSlider",
+    Callback = function(v)
+        silentAimFOV = v
+    end
+})
+
+MainTab:CreateSection("TESTING")
+
+MainTab:CreateButton({
+    Name = "Test Target Detection",
+    Flag = "TestButton",
+    Callback = function()
+        local target = getNearestTarget()
+        if target then
+            Rayfield:Notify({
+                Title = "Target Found",
+                Content = target.Player.Name .. " (FOV: " .. math.floor(target.Distance) .. "px)",
+                Duration = 2
+            })
+        else
+            Rayfield:Notify({
+                Title = "No Target",
+                Content = "No enemy in FOV",
+                Duration = 2
+            })
+        end
+    end
+})
+
+MainTab:CreateButton({
+    Name = "Check Remotes",
+    Flag = "CheckRemotesButton",
+    Callback = function()
+        local status = "ServerBullet: " .. (serverBullet and "FOUND" or "NOT FOUND") .. "\n"
+        status = status .. "Hit: " .. (hit and "FOUND" or "NOT FOUND") .. "\n"
+        status = status .. "Damage: " .. (damage and "FOUND" or "NOT FOUND")
+        Rayfield:Notify({Title = "Remote Status", Content = status, Duration = 4})
+    end
+})
+
+MainTab:CreateSection("INFO")
+
+MainTab:CreateLabel("1. Enable Silent Aim")
+MainTab:CreateLabel("2. Aim near enemy")
+MainTab:CreateLabel("3. Shoot normally")
+MainTab:CreateLabel("")
+MainTab:CreateLabel("If not working, click")
+MainTab:CreateLabel("'Check Remotes' and")
+MainTab:CreateLabel("tell me what shows")
+
+-- GUI protection
+local isGuiActive = false
+
+UserInputService.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 then
+        local mouse = LocalPlayer:GetMouse()
+        if mouse.Target and mouse.Target:IsDescendantOf(game:GetService("CoreGui")) then 
+            isGuiActive = true 
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 then 
+        isGuiActive = false 
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.RightControl then 
+        restoreServerBullet()
+        Rayfield:Destroy() 
+    end
+end)
