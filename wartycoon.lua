@@ -122,13 +122,13 @@ MainTab:CreateToggle({
     end
 })
 
--- ========== TOGGLE 2: автоматическая проверка GasPrice = 14 или 15 ==========
+-- ========== TOGGLE 2: автоматическая проверка GasPrice = 15 ==========
 local autoGasActive = false
 local autoGasThread = nil
-local gasTriggered = false
+local gasTriggered = false  -- чтобы не спамить, пока GasPrice = 15
 
 MainTab:CreateToggle({
-    Name = "Авто-проверка GasPrice = 14-15 (телепорт + E + Sell)",
+    Name = "Авто-проверка GasPrice = 15 (телепорт + E + Sell)",
     CurrentValue = false,
     Flag = "AutoGasToggle",
     Callback = function(Value)
@@ -139,20 +139,21 @@ MainTab:CreateToggle({
             autoGasThread = task.spawn(function()
                 while autoGasActive do
                     local gasPrice = game:GetService("ReplicatedStorage"):FindFirstChild("GasPrice")
-                    -- Проверяем: значение равно 14 ИЛИ 15
-                    if gasPrice and (gasPrice.Value == 14 or gasPrice.Value == 15) then
+                    if gasPrice and gasPrice.Value == 15 then
                         if not gasTriggered then
                             gasTriggered = true
+                            -- Выполняем действие
                             DoGasStationAction()
-                            Rayfield:Notify({Title = "Авто-газ", Content = "GasPrice = " .. gasPrice.Value .. ", действие выполнено", Duration = 2})
+                            Rayfield:Notify({Title = "Авто-газ", Content = "GasPrice = 15, действие выполнено", Duration = 2})
                         end
                     else
+                        -- Если значение изменилось, сбрасываем флаг, чтобы можно было сработать снова
                         gasTriggered = false
                     end
-                    task.wait(1)
+                    task.wait(1)  -- проверяем каждую секунду
                 end
             end)
-            Rayfield:Notify({Title = "Авто-газ", Content = "Включён (проверка GasPrice 14-15 каждую секунду)", Duration = 2})
+            Rayfield:Notify({Title = "Авто-газ", Content = "Включён (проверка GasPrice каждую секунду)", Duration = 2})
         else
             if autoGasThread then task.cancel(autoGasThread); autoGasThread = nil end
             gasTriggered = false
