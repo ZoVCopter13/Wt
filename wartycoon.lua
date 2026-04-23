@@ -18,7 +18,7 @@ local Window = Rayfield:CreateWindow({
 
 local MainTab = Window:CreateTab("Главная", 0)
 
--- Функция телепортации
+-- Функция телепортаци
 local function TeleportTo(cframe)
     local player = game.Players.LocalPlayer
     local character = player.Character
